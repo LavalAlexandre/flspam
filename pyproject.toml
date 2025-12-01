@@ -51,6 +51,7 @@ lr = 1e-4  # Lower LR for LoRA fine-tuning
 batch-size = 32  # Batch size for training (increase for GPU utilization)
 spam-strategy = "iid"  # or "dirichlet" for non-IID
 spam-alpha = 0.5  # Dirichlet alpha (lower = more non-IID)
+save-every = 1  # Save checkpoint every N rounds (1 = every round)
 
 # Default federation to use when running the app
 [tool.flwr.federations]
