@@ -179,21 +179,23 @@ def main(grid: Grid, context: Context) -> None:
         
         # Save checkpoint
         if round_num % save_every == 0 or round_num == num_rounds:
+            eval_metrics = getattr(result, 'eval_metrics', None) or {}
             metrics = {
-                "loss": result.metrics.get("eval_loss", 0) if result.metrics else 0,
-                "acc": result.metrics.get("eval_acc", 0) if result.metrics else 0,
-                "f1": result.metrics.get("eval_f1", 0) if result.metrics else 0,
+                "loss": eval_metrics.get("eval_loss", 0) if eval_metrics else 0,
+                "acc": eval_metrics.get("eval_acc", 0) if eval_metrics else 0,
+                "f1": eval_metrics.get("eval_f1", 0) if eval_metrics else 0,
             }
             _save_checkpoint(global_model, round_num, metrics)
 
     # Log final metrics to W&B
-    if result and result.metrics:
+    final_eval_metrics = getattr(result, 'eval_metrics', None) or {} if result else {}
+    if final_eval_metrics:
         wandb.log({
-            "final/loss": result.metrics.get("eval_loss", 0),
-            "final/accuracy": result.metrics.get("eval_acc", 0),
-            "final/precision": result.metrics.get("eval_precision", 0),
-            "final/recall": result.metrics.get("eval_recall", 0),
-            "final/f1": result.metrics.get("eval_f1", 0),
+            "final/loss": final_eval_metrics.get("eval_loss", 0),
+            "final/accuracy": final_eval_metrics.get("eval_acc", 0),
+            "final/precision": final_eval_metrics.get("eval_precision", 0),
+            "final/recall": final_eval_metrics.get("eval_recall", 0),
+            "final/f1": final_eval_metrics.get("eval_f1", 0),
         })
 
     # Save final model to disk
