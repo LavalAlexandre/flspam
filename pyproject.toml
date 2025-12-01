@@ -45,7 +45,7 @@ clientapp = "src.client_app:app"
 # Custom config values accessible via `context.run_config`
 [tool.flwr.app.config]
 num-server-rounds = 5
-fraction-train = 0.8
+fraction-train = 0.2  # Lower participation: ~2-4 clients per round out of 20
 local-epochs = 2
 lr = 1e-4  # Lower LR for LoRA fine-tuning
 batch-size = 32  # Batch size for training (increase for GPU utilization)

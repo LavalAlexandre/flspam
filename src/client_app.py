@@ -1,9 +1,11 @@
 """flspam: A Flower / PyTorch app for SMS spam classification."""
 
 import logging
+import os
 import time
 
 import torch
+import wandb
 from flwr.client import ClientApp
 from flwr.common import Context, Message, ArrayRecord, MetricRecord, RecordDict
 
@@ -18,6 +20,39 @@ log = logging.getLogger(__name__)
 # Flower ClientApp
 app = ClientApp()
 
+# Track wandb runs per partition to avoid reinitializing
+_wandb_runs: dict[int, wandb.sdk.wandb_run.Run] = {}
+
+
+def _get_wandb_run(partition_id: int, context: Context) -> wandb.sdk.wandb_run.Run:
+    """Get or create a wandb run for this partition."""
+    global _wandb_runs
+    
+    if partition_id not in _wandb_runs:
+        # Create unique run name for this client
+        run_name = f"client-{partition_id}"
+        spam_strategy = context.run_config.get("spam-strategy", "iid")
+        spam_alpha = context.run_config.get("spam-alpha", 0.5)
+        
+        run = wandb.init(
+            project="flspam",
+            name=run_name,
+            group="federated-clients",  # Group all client runs together
+            job_type="client",
+            config={
+                "partition_id": partition_id,
+                "num_partitions": context.node_config["num-partitions"],
+                "spam_strategy": spam_strategy,
+                "spam_alpha": spam_alpha,
+                "local_epochs": context.run_config.get("local-epochs", 2),
+                "batch_size": context.run_config.get("batch-size", 32),
+            },
+            reinit=True,  # Allow multiple inits in same process
+        )
+        _wandb_runs[partition_id] = run
+    
+    return _wandb_runs[partition_id]
+
 
 @app.train()
 def train(msg: Message, context: Context) -> Message:
@@ -26,6 +61,9 @@ def train(msg: Message, context: Context) -> Message:
     start_time = time.time()
     
     log.info(f"[P{partition_id}] === TRAIN START ===")
+    
+    # Initialize wandb for this client
+    wandb_run = _get_wandb_run(partition_id, context)
     
     # Load the model and initialize it with the received weights
     log.info(f"[P{partition_id}] Loading model...")
@@ -69,7 +107,15 @@ def train(msg: Message, context: Context) -> Message:
         msg.content["config"]["lr"],
         device,
     )
-    log.info(f"[P{partition_id}] Training completed in {time.time() - t0:.2f}s - loss: {train_loss:.4f}")
+    training_time = time.time() - t0
+    log.info(f"[P{partition_id}] Training completed in {training_time:.2f}s - loss: {train_loss:.4f}")
+    
+    # Log to wandb
+    wandb_run.log({
+        "train_loss": train_loss,
+        "train_time_s": training_time,
+        "num_samples": len(trainloader.dataset),
+    })
 
     # Construct and return reply Message
     log.info(f"[P{partition_id}] Preparing response...")
@@ -123,6 +169,9 @@ def evaluate(msg: Message, context: Context) -> Message:
     )
     log.info(f"[P{partition_id}] Eval data loaded in {time.time() - t0:.2f}s - {len(valloader.dataset)} samples")
 
+    # Get wandb run for logging
+    wandb_run = _get_wandb_run(partition_id, context)
+    
     # Call the evaluation function
     log.info(f"[P{partition_id}] Running evaluation...")
     t0 = time.time()
@@ -131,7 +180,16 @@ def evaluate(msg: Message, context: Context) -> Message:
         valloader,
         device,
     )
-    log.info(f"[P{partition_id}] Eval completed in {time.time() - t0:.2f}s - loss: {eval_loss:.4f}, acc: {eval_acc:.4f}")
+    eval_time = time.time() - t0
+    log.info(f"[P{partition_id}] Eval completed in {eval_time:.2f}s - loss: {eval_loss:.4f}, acc: {eval_acc:.4f}")
+    
+    # Log to wandb
+    wandb_run.log({
+        "eval_loss": eval_loss,
+        "eval_acc": eval_acc,
+        "eval_time_s": eval_time,
+        "num_eval_samples": len(valloader.dataset),
+    })
 
     # Construct and return reply Message
     metrics = {
