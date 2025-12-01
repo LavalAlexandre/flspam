@@ -6,8 +6,10 @@ from typing import Literal
 
 import torch
 from torch.utils.data import DataLoader, Dataset
+from torch.cuda.amp import GradScaler, autocast
 import numpy as np
 
+from transformers import get_scheduler
 from src.model.modernbert import create_model, get_tokenizer, MODEL_NAME, LABEL_TO_ID
 
 
@@ -225,8 +227,18 @@ def get_num_clients() -> int:
 # Training & Evaluation
 # ------------------------------------------------------------------
 
-def train(model, trainloader, epochs: int, lr: float, device: torch.device):
-    """Train the model on the training set.
+def train(
+    model, 
+    trainloader, 
+    epochs: int, 
+    lr: float, 
+    device: torch.device,
+    warmup_ratio: float = 0.1,
+    max_grad_norm: float = 1.0,
+    use_amp: bool = True,
+    compile_model: bool = False,
+):
+    """Train the model on the training set with optimizations.
     
     Args:
         model: ModernBERT model with LoRA
@@ -234,6 +246,10 @@ def train(model, trainloader, epochs: int, lr: float, device: torch.device):
         epochs: Number of local epochs
         lr: Learning rate
         device: Device to train on
+        warmup_ratio: Fraction of steps for linear warmup (default 10%)
+        max_grad_norm: Maximum gradient norm for clipping (default 1.0)
+        use_amp: Use automatic mixed precision (default True)
+        compile_model: Use torch.compile for optimization (default False, can be slow first run)
         
     Returns:
         Average training loss
@@ -241,11 +257,34 @@ def train(model, trainloader, epochs: int, lr: float, device: torch.device):
     model.to(device)
     model.train()
     
+    # Optionally compile the model (PyTorch 2.0+)
+    if compile_model and hasattr(torch, 'compile'):
+        model = torch.compile(model, mode="reduce-overhead")
+    
     # Only optimize trainable parameters (LoRA + classifier)
     optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=lr,
+        weight_decay=0.01,
+        betas=(0.9, 0.999),
+        eps=1e-8,
     )
+    
+    # Calculate total steps and warmup steps
+    total_steps = len(trainloader) * epochs
+    warmup_steps = int(total_steps * warmup_ratio)
+    
+    # Learning rate scheduler: linear warmup + cosine decay
+    scheduler = get_scheduler(
+        name="cosine",
+        optimizer=optimizer,
+        num_warmup_steps=warmup_steps,
+        num_training_steps=total_steps,
+    )
+    
+    # Mixed precision scaler (only for CUDA)
+    use_amp = use_amp and device.type == "cuda"
+    scaler = GradScaler(enabled=use_amp)
     
     total_loss = 0.0
     num_batches = 0
@@ -256,17 +295,33 @@ def train(model, trainloader, epochs: int, lr: float, device: torch.device):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
             
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
+            # Forward pass with automatic mixed precision
+            with autocast(device_type=device.type, enabled=use_amp):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                )
+                loss = outputs.loss
+            
+            # Backward pass with gradient scaling
+            scaler.scale(loss).backward()
+            
+            # Gradient clipping (unscale first for proper clipping)
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(
+                filter(lambda p: p.requires_grad, model.parameters()),
+                max_grad_norm
             )
             
-            loss = outputs.loss
-            loss.backward()
-            optimizer.step()
+            # Optimizer step with scaler
+            scaler.step(optimizer)
+            scaler.update()
+            
+            # LR scheduler step
+            scheduler.step()
             
             total_loss += loss.item()
             num_batches += 1
@@ -274,19 +329,22 @@ def train(model, trainloader, epochs: int, lr: float, device: torch.device):
     return total_loss / num_batches if num_batches > 0 else 0.0
 
 
-def test(model, testloader, device: torch.device):
+def test(model, testloader, device: torch.device, use_amp: bool = True):
     """Evaluate the model on the test set.
     
     Args:
         model: ModernBERT model
         testloader: Test data loader
         device: Device to evaluate on
+        use_amp: Use automatic mixed precision (default True)
         
     Returns:
         (loss, accuracy)
     """
     model.to(device)
     model.eval()
+    
+    use_amp = use_amp and device.type == "cuda"
     
     total_loss = 0.0
     correct = 0
@@ -298,11 +356,12 @@ def test(model, testloader, device: torch.device):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                labels=labels,
-            )
+            with autocast(device_type=device.type, enabled=use_amp):
+                outputs = model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    labels=labels,
+                )
             
             total_loss += outputs.loss.item()
             
