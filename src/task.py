@@ -7,7 +7,6 @@ from typing import Literal
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from torch.cuda.amp import GradScaler, autocast
 import numpy as np
 
 from transformers import get_scheduler
@@ -287,7 +286,7 @@ def train(
     
     # Mixed precision scaler (only for CUDA)
     use_amp = use_amp and device.type == "cuda"
-    scaler = GradScaler(enabled=use_amp)
+    scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     
     total_loss = 0.0
     num_batches = 0
@@ -303,7 +302,7 @@ def train(
             optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
             
             # Forward pass with automatic mixed precision
-            with autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(device.type, enabled=use_amp):
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -367,7 +366,7 @@ def test(model, testloader, device: torch.device, use_amp: bool = True):
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
             
-            with autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(device.type, enabled=use_amp):
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
