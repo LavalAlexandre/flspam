@@ -1,6 +1,7 @@
 """flspam: A Flower / PyTorch app for SMS spam classification."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,8 @@ import numpy as np
 
 from transformers import get_scheduler
 from src.model.modernbert import create_model, get_tokenizer, MODEL_NAME, LABEL_TO_ID
+
+log = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------
@@ -288,9 +291,11 @@ def train(
     
     total_loss = 0.0
     num_batches = 0
+    total_batches = len(trainloader) * epochs
+    log_interval = max(1, total_batches // 5)  # Log ~5 times during training
     
-    for _ in range(epochs):
-        for batch in trainloader:
+    for epoch in range(epochs):
+        for batch_idx, batch in enumerate(trainloader):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
@@ -325,6 +330,12 @@ def train(
             
             total_loss += loss.item()
             num_batches += 1
+            
+            # Progress logging
+            if num_batches % log_interval == 0 or num_batches == total_batches:
+                avg_loss = total_loss / num_batches
+                lr = scheduler.get_last_lr()[0]
+                log.info(f"  Batch {num_batches}/{total_batches} (epoch {epoch+1}/{epochs}) - loss: {avg_loss:.4f}, lr: {lr:.2e}")
     
     return total_loss / num_batches if num_batches > 0 else 0.0
 
