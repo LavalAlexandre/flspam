@@ -68,7 +68,7 @@ def train(msg: Message, context: Context) -> Message:
     log.info(f"[P{partition_id}] Loading model...")
     t0 = time.time()
     model = get_model(use_lora=True)
-    log.info(f"[P{partition_id}] Model created in {time.time() - t0:.2f}s"))
+    log.info(f"[P{partition_id}] Model created in {time.time() - t0:.2f}s")
     
     log.info(f"[P{partition_id}] Loading state dict from server...")
     t0 = time.time()
