@@ -20,24 +20,22 @@ log = logging.getLogger(__name__)
 # Flower ClientApp
 app = ClientApp()
 
-# Track wandb runs per partition to avoid reinitializing
-_wandb_runs: dict[int, wandb.sdk.wandb_run.Run] = {}
-
-
-def _get_wandb_run(partition_id: int, context: Context) -> wandb.sdk.wandb_run.Run:
-    """Get or create a wandb run for this partition."""
-    global _wandb_runs
-    
-    if partition_id not in _wandb_runs:
-        # Create unique run name for this client
+def _log_to_wandb(partition_id: int, context: Context, metrics: dict) -> None:
+    """Log metrics to wandb, handling run lifecycle properly for Ray actors."""
+    try:
+        # Use wandb.log with commit=True to avoid issues with run state
+        # Each call is a separate "step" - wandb will auto-increment
         run_name = f"client-{partition_id}"
         spam_strategy = context.run_config.get("spam-strategy", "iid")
         spam_alpha = context.run_config.get("spam-alpha", 0.5)
         
+        # Always init a new run (reinit=True handles cleanup)
+        # Use resume="allow" to continue if run exists
         run = wandb.init(
             project="flspam",
             name=run_name,
-            group="federated-clients",  # Group all client runs together
+            id=f"client-{partition_id}-{context.run_config.get('run-id', 'default')}",
+            group="federated-clients",
             job_type="client",
             config={
                 "partition_id": partition_id,
@@ -47,11 +45,15 @@ def _get_wandb_run(partition_id: int, context: Context) -> wandb.sdk.wandb_run.R
                 "local_epochs": context.run_config.get("local-epochs", 2),
                 "batch_size": context.run_config.get("batch-size", 32),
             },
-            reinit=True,  # Allow multiple inits in same process
+            reinit=True,
+            resume="allow",
         )
-        _wandb_runs[partition_id] = run
-    
-    return _wandb_runs[partition_id]
+        
+        wandb.log(metrics)
+        wandb.finish()
+        
+    except Exception as e:
+        log.warning(f"[P{partition_id}] Failed to log to wandb: {e}")
 
 
 @app.train()
@@ -62,14 +64,11 @@ def train(msg: Message, context: Context) -> Message:
     
     log.info(f"[P{partition_id}] === TRAIN START ===")
     
-    # Initialize wandb for this client
-    wandb_run = _get_wandb_run(partition_id, context)
-    
     # Load the model and initialize it with the received weights
     log.info(f"[P{partition_id}] Loading model...")
     t0 = time.time()
     model = get_model(use_lora=True)
-    log.info(f"[P{partition_id}] Model created in {time.time() - t0:.2f}s")
+    log.info(f"[P{partition_id}] Model created in {time.time() - t0:.2f}s"))
     
     log.info(f"[P{partition_id}] Loading state dict from server...")
     t0 = time.time()
@@ -111,7 +110,7 @@ def train(msg: Message, context: Context) -> Message:
     log.info(f"[P{partition_id}] Training completed in {training_time:.2f}s - loss: {train_loss:.4f}")
     
     # Log to wandb
-    wandb_run.log({
+    _log_to_wandb(partition_id, context, {
         "train_loss": train_loss,
         "train_time_s": training_time,
         "num_samples": len(trainloader.dataset),
@@ -169,9 +168,6 @@ def evaluate(msg: Message, context: Context) -> Message:
     )
     log.info(f"[P{partition_id}] Eval data loaded in {time.time() - t0:.2f}s - {len(valloader.dataset)} samples")
 
-    # Get wandb run for logging
-    wandb_run = _get_wandb_run(partition_id, context)
-    
     # Call the evaluation function
     log.info(f"[P{partition_id}] Running evaluation...")
     t0 = time.time()
@@ -184,7 +180,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     log.info(f"[P{partition_id}] Eval completed in {eval_time:.2f}s - loss: {eval_loss:.4f}, acc: {eval_acc:.4f}")
     
     # Log to wandb
-    wandb_run.log({
+    _log_to_wandb(partition_id, context, {
         "eval_loss": eval_loss,
         "eval_acc": eval_acc,
         "eval_time_s": eval_time,
