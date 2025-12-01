@@ -48,14 +48,16 @@ def train(msg: Message, context: Context) -> Message:
     num_partitions = context.node_config["num-partitions"]
     spam_strategy = context.run_config.get("spam-strategy", "iid")
     spam_alpha = context.run_config.get("spam-alpha", 0.5)
+    batch_size = context.run_config.get("batch-size", 32)
     
     trainloader, _ = load_data(
         partition_id, 
         num_partitions,
+        batch_size=batch_size,
         spam_strategy=spam_strategy,
         spam_alpha=spam_alpha,
     )
-    log.info(f"[P{partition_id}] Data loaded in {time.time() - t0:.2f}s - {len(trainloader.dataset)} samples, {len(trainloader)} batches")
+    log.info(f"[P{partition_id}] Data loaded in {time.time() - t0:.2f}s - {len(trainloader.dataset)} samples, {len(trainloader)} batches (bs={batch_size})")
 
     # Call the training function
     log.info(f"[P{partition_id}] Starting training: {context.run_config['local-epochs']} epochs, lr={msg.content['config']['lr']}")
@@ -110,10 +112,12 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_partitions = context.node_config["num-partitions"]
     spam_strategy = context.run_config.get("spam-strategy", "iid")
     spam_alpha = context.run_config.get("spam-alpha", 0.5)
+    batch_size = context.run_config.get("batch-size", 32)
     
     _, valloader = load_data(
         partition_id,
         num_partitions,
+        batch_size=batch_size,
         spam_strategy=spam_strategy,
         spam_alpha=spam_alpha,
     )

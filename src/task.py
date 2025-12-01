@@ -152,7 +152,7 @@ def distribute_spam(
 def load_data(
     partition_id: int,
     num_partitions: int,
-    batch_size: int = 16,
+    batch_size: int = 32,
     spam_strategy: Literal["iid", "dirichlet"] = "iid",
     spam_alpha: float = 0.5,
     test_size: float = 0.2,
