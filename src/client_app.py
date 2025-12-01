@@ -171,26 +171,37 @@ def evaluate(msg: Message, context: Context) -> Message:
     # Call the evaluation function
     log.info(f"[P{partition_id}] Running evaluation...")
     t0 = time.time()
-    eval_loss, eval_acc = test_fn(
+    eval_metrics = test_fn(
         model,
         valloader,
         device,
     )
     eval_time = time.time() - t0
-    log.info(f"[P{partition_id}] Eval completed in {eval_time:.2f}s - loss: {eval_loss:.4f}, acc: {eval_acc:.4f}")
+    log.info(
+        f"[P{partition_id}] Eval completed in {eval_time:.2f}s - "
+        f"loss: {eval_metrics['loss']:.4f}, acc: {eval_metrics['accuracy']:.4f}, "
+        f"precision: {eval_metrics['precision']:.4f}, recall: {eval_metrics['recall']:.4f}, "
+        f"f1: {eval_metrics['f1']:.4f}"
+    )
     
     # Log to wandb
     _log_to_wandb(partition_id, context, {
-        "eval_loss": eval_loss,
-        "eval_acc": eval_acc,
+        "eval_loss": eval_metrics["loss"],
+        "eval_acc": eval_metrics["accuracy"],
+        "eval_precision": eval_metrics["precision"],
+        "eval_recall": eval_metrics["recall"],
+        "eval_f1": eval_metrics["f1"],
         "eval_time_s": eval_time,
         "num_eval_samples": len(valloader.dataset),
     })
 
     # Construct and return reply Message
     metrics = {
-        "eval_loss": eval_loss,
-        "eval_acc": eval_acc,
+        "eval_loss": eval_metrics["loss"],
+        "eval_acc": eval_metrics["accuracy"],
+        "eval_precision": eval_metrics["precision"],
+        "eval_recall": eval_metrics["recall"],
+        "eval_f1": eval_metrics["f1"],
         "num-examples": len(valloader.dataset),
     }
     metric_record = MetricRecord(metrics)

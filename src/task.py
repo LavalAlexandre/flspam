@@ -349,16 +349,18 @@ def test(model, testloader, device: torch.device, use_amp: bool = True):
         use_amp: Use automatic mixed precision (default True)
         
     Returns:
-        (loss, accuracy)
+        dict with keys: loss, accuracy, precision, recall, f1
     """
+    from sklearn.metrics import precision_recall_fscore_support
+    
     model.to(device)
     model.eval()
     
     use_amp = use_amp and device.type == "cuda"
     
     total_loss = 0.0
-    correct = 0
-    total = 0
+    all_predictions = []
+    all_labels = []
     
     with torch.no_grad():
         for batch in testloader:
@@ -378,13 +380,26 @@ def test(model, testloader, device: torch.device, use_amp: bool = True):
             # Predictions: argmax over 2 classes
             logits = outputs.logits
             predictions = torch.argmax(logits, dim=-1)
-            correct += (predictions == labels).sum().item()
-            total += labels.size(0)
+            
+            all_predictions.extend(predictions.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
     
     avg_loss = total_loss / len(testloader) if len(testloader) > 0 else 0.0
-    accuracy = correct / total if total > 0 else 0.0
     
-    return avg_loss, accuracy
+    # Calculate metrics using sklearn
+    # pos_label=1 means spam is the positive class
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        all_labels, all_predictions, average="binary", pos_label=1, zero_division=0
+    )
+    accuracy = sum(p == l for p, l in zip(all_predictions, all_labels)) / len(all_labels) if all_labels else 0.0
+    
+    return {
+        "loss": avg_loss,
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+    }
 
 
 # ------------------------------------------------------------------

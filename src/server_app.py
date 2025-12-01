@@ -49,26 +49,42 @@ def eval_metrics_aggregator(replies: list[RecordDict], weight_key: str) -> Metri
     total_examples = 0
     weighted_loss = 0.0
     weighted_acc = 0.0
+    weighted_precision = 0.0
+    weighted_recall = 0.0
+    weighted_f1 = 0.0
     
     for reply in replies:
         metrics = reply.get("metrics", MetricRecord())
         num_examples = metrics.get(weight_key, 1)
-        eval_loss = metrics.get("eval_loss", 0.0)
-        eval_acc = metrics.get("eval_acc", 0.0)
         total_examples += num_examples
-        weighted_loss += eval_loss * num_examples
-        weighted_acc += eval_acc * num_examples
+        weighted_loss += metrics.get("eval_loss", 0.0) * num_examples
+        weighted_acc += metrics.get("eval_acc", 0.0) * num_examples
+        weighted_precision += metrics.get("eval_precision", 0.0) * num_examples
+        weighted_recall += metrics.get("eval_recall", 0.0) * num_examples
+        weighted_f1 += metrics.get("eval_f1", 0.0) * num_examples
     
     avg_loss = weighted_loss / total_examples if total_examples > 0 else 0.0
     avg_acc = weighted_acc / total_examples if total_examples > 0 else 0.0
+    avg_precision = weighted_precision / total_examples if total_examples > 0 else 0.0
+    avg_recall = weighted_recall / total_examples if total_examples > 0 else 0.0
+    avg_f1 = weighted_f1 / total_examples if total_examples > 0 else 0.0
     
     if _wandb_run is not None:
         wandb.log({
             "eval_loss": avg_loss,
             "eval_acc": avg_acc,
+            "eval_precision": avg_precision,
+            "eval_recall": avg_recall,
+            "eval_f1": avg_f1,
         }, step=_current_round)
     
-    return MetricRecord({"eval_loss": avg_loss, "eval_acc": avg_acc})
+    return MetricRecord({
+        "eval_loss": avg_loss,
+        "eval_acc": avg_acc,
+        "eval_precision": avg_precision,
+        "eval_recall": avg_recall,
+        "eval_f1": avg_f1,
+    })
 
 
 @app.main()
@@ -129,6 +145,9 @@ def main(grid: Grid, context: Context) -> None:
         wandb.log({
             "final/loss": result.metrics.get("eval_loss", 0),
             "final/accuracy": result.metrics.get("eval_acc", 0),
+            "final/precision": result.metrics.get("eval_precision", 0),
+            "final/recall": result.metrics.get("eval_recall", 0),
+            "final/f1": result.metrics.get("eval_f1", 0),
         })
 
     # Save final model to disk
