@@ -59,6 +59,8 @@ default = "local-simulation"
 # Run get_num_clients() to check: python -c "from src.task import get_num_clients; print(get_num_clients())"
 [tool.flwr.federations.local-simulation]
 options.num-supernodes = 20  # Update this to match your persona count
+options.backend.client-resources.num-cpus = 2
+options.backend.client-resources.num-gpus = 1.0  # Each client gets GPU access
 
 # Remote federation example for use with SuperLink
 [tool.flwr.federations.remote-federation]
