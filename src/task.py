@@ -47,7 +47,7 @@ class SMSDataset(Dataset):
         return {
             "input_ids": encoding["input_ids"].squeeze(0),
             "attention_mask": encoding["attention_mask"].squeeze(0),
-            "labels": torch.tensor(self.labels[idx], dtype=torch.float),
+            "labels": torch.tensor(self.labels[idx], dtype=torch.long),
         }
 
 
@@ -306,10 +306,10 @@ def test(model, testloader, device: torch.device):
             
             total_loss += outputs.loss.item()
             
-            # Predictions: logits > 0 means spam
-            logits = outputs.logits.squeeze(-1)
-            predictions = (logits > 0).long()
-            correct += (predictions == labels.long()).sum().item()
+            # Predictions: argmax over 2 classes
+            logits = outputs.logits
+            predictions = torch.argmax(logits, dim=-1)
+            correct += (predictions == labels).sum().item()
             total += labels.size(0)
     
     avg_loss = total_loss / len(testloader) if len(testloader) > 0 else 0.0

@@ -36,11 +36,10 @@ def create_model(
     Returns:
         Model ready for training with Trainer or manual loop
     """
-    # Load ModernBERT with classification head (single logit for binary)
+    # Load ModernBERT with classification head (2 classes for binary)
     model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME,
-        num_labels=1,  # Single logit + BCEWithLogitsLoss
-        problem_type="single_label_classification",
+        num_labels=2,  # Binary classification with CrossEntropyLoss
     )
     
     # Apply LoRA if requested
