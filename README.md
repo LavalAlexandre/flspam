@@ -173,17 +173,8 @@ options.num-supernodes = 20  # Must match persona count
 - [Nemotron-Personas-USA Dataset](https://huggingface.co/datasets/nvidia/Nemotron-Personas-USA)
 - [W&B Documentation](https://docs.wandb.ai/)
 
-## Citation
+## Acknowledgments
 
-```bibtex
-@article{salman2024investigating,
-  title={Investigating Evasive Techniques in SMS Spam Filtering: A Comparative Analysis of Machine Learning Models},
-  author={Salman, Muhammad and Ikram, Muhammad and Kaafar, Mohamed Ali},
-  journal={IEEE Access},
-  year={2024},
-  publisher={IEEE}
-}
-```
+This project uses the **Super SMS Dataset** for spam messages. If you use this dataset, please cite:
 
-- Paper: https://ieeexplore.ieee.org/document/10431737
-- Dataset: https://github.com/smspamresearch/spstudy
+> M. Salman, M. Ikram and M. A. Kaafar, "Investigating Evasive Techniques in SMS Spam Filtering: A Comparative Analysis of Machine Learning Models," *IEEE Access*, 2024. [[Paper]](https://ieeexplore.ieee.org/document/10431737) [[Dataset]](https://github.com/smspamresearch/spstudy)
