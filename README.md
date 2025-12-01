@@ -10,6 +10,7 @@ FLspam/
 │   ├── client_app.py          # Flower client for federated training
 │   ├── server_app.py          # Flower server with W&B logging
 │   ├── task.py                # Data loading & training logic
+│   ├── prepare_dataset.py     # Generate ham/spam JSON files
 │   ├── model/
 │   │   └── modernbert.py      # ModernBERT + LoRA classifier
 │   └── synthetic_data/
@@ -25,7 +26,8 @@ FLspam/
 ├── data/
 │   ├── personas.json          # Generated personas (by UUID)
 │   ├── relationships.json     # Relationship graph between personas
-│   └── conversations.json     # Generated SMS conversations
+│   ├── conversations.json     # Generated SMS conversations
+│   └── super_sms_dataset.csv  # External spam dataset (Super SMS)
 └── pyproject.toml
 ```
 
@@ -57,7 +59,19 @@ uv run python -m src.synthetic_data.personas
 python -m src.synthetic_data.sms_generation
 ```
 
-### 2. Run Federated Learning
+### 2. Prepare Dataset
+
+Process raw data into ham/spam message files:
+
+```bash
+uv run python -m src.prepare_dataset
+```
+
+This creates:
+- `data/ham_messages.json` - Messages received by personas (label=0)
+- `data/spam_messages.json` - Spam messages for distribution (label=1)
+
+### 3. Run Federated Learning
 
 ```bash
 # Run federated training
