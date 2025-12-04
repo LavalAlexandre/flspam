@@ -1767,17 +1767,17 @@ def train_rl_phase(
         )
 
     # Create dataset
-    print("\n[3/4] Creating prompt dataset...")
+    print("\\n[3/4] Creating prompt dataset...")
     dataset = create_simple_dataset(config.num_samples, config.seed)
     print(f"Created {len(dataset)} prompts")
 
-    # Calculate max_steps
-    effective_batch = config.per_device_batch_size * config.gradient_accumulation_steps
-    max_steps = total_episodes // effective_batch
-    print(f"Training for {max_steps} steps ({total_episodes} episodes)")
+    # Use grpo_batch_size for GRPO training (separate from SFT batch size)
+    grpo_batch = config.grpo_batch_size
+    max_steps = config.grpo_steps  # Use explicit grpo_steps
+    print(f"Training for {max_steps} steps (batch={grpo_batch}, generations={config.num_generations})")
 
     # Configure GRPO
-    print("\n[4/4] Starting RL training...")
+    print("\\n[4/4] Starting RL training...")
     run_name = "rl-spam-combined" if use_judge else "rl-spam-detector-only"
     training_args = GRPOConfig(
         temperature=config.temperature,
@@ -1787,7 +1787,7 @@ def train_rl_phase(
         lr_scheduler_type="cosine",
         optim="adamw_8bit",
         logging_steps=1,
-        per_device_train_batch_size=config.per_device_batch_size,
+        per_device_train_batch_size=grpo_batch,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
         num_generations=config.num_generations,
         max_prompt_length=32,  # Short prompts

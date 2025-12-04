@@ -186,13 +186,14 @@ class GRPOSpamConfig:
     learning_rate: float = 5e-5  # Higher LR for faster convergence in short RL runs
     weight_decay: float = 0.001
     warmup_ratio: float = 0.03  # Minimal warmup for short runs (1 step for 30 steps)
-    per_device_batch_size: Optional[int] = None  # Auto-detect if None
+    per_device_batch_size: Optional[int] = None  # Auto-detect if None (used for SFT)
     gradient_accumulation_steps: Optional[int] = None  # Auto-detect if None
     num_generations: Optional[int] = None  # Auto-detect if None
     total_episodes: int = (
         DEFAULT_ADVERSARIAL_EPISODES  # Total prompt episodes (aligned with FL config)
     )
     grpo_steps: int = 60  # Number of GRPO training steps per episode
+    grpo_batch_size: int = 4  # Batch size for GRPO (separate from SFT batch size)
     save_steps: int = 100
 
     # GPU config (populated by auto_configure)

@@ -73,13 +73,15 @@ def run_adversarial_training(
         lora_output_dir=str(output_dir_path / "grpo_lora"),
         bypass_log_path=bypass_log_path,
         total_episodes=total_episodes,
-        per_device_batch_size=grpo_batch_size,
+        # Don't set per_device_batch_size - let it auto-detect for SFT
+        # GRPO will use grpo_batch_size and grpo_num_generations
         num_generations=grpo_num_generations,
         num_samples=total_episodes,  # Match samples to episodes
         wandb_project="flspam-adversarial",
         wandb_run_name=f"adversarial-{Path(detector_path).name}",
         print_every=5,  # More frequent logging for shorter runs
         grpo_steps=grpo_steps,
+        grpo_batch_size=grpo_batch_size,
     )
 
     # Create output directory
