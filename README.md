@@ -14,6 +14,10 @@ A research project exploring **adversarial robustness in federated learning** fo
 - 📊 **Synthetic Data**: LLM-generated persona-based SMS conversations for realistic training
 - 🔄 **Automated Pipeline**: Adversarial rounds run automatically during FL training
 
+## Architecture
+
+![FLspam Architecture Diagram](flspam_diag.png)
+
 ## Quick Start (Colab)
 
 The easiest way to try FLspam is via the Colab notebook:
