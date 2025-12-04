@@ -4,7 +4,8 @@ A research project exploring **adversarial robustness in federated learning** fo
 
 **Key Research Question**: Can we train a spam detector that remains robust when an adversary actively generates evasive spam using RL?
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1QunSUXh-8hEQ-QBLdTWaTPZfNSh-B6di?usp=sharing)
+[![Open In Colab - RL rounds 2,4,6](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1QunSUXh-8hEQ-QBLdTWaTPZfNSh-B6di?usp=sharing)
+[![Open In Colab - RL last round only](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1UQvlmdsqNZvk22KiEaiV_rUqZkejtnhc?usp=sharing)
 
 ## Highlights
 
@@ -129,17 +130,6 @@ This creates:
 uv run flwr run .
 ```
 
-## Model Architecture
-
-**ModernBERT-base + LoRA** for efficient federated fine-tuning:
-
-- Base: [answerdotai/ModernBERT-base](https://huggingface.co/answerdotai/ModernBERT-base) (~150M params)
-- LoRA: rank=8, alpha=16, targeting attention layers (`Wqkv`, `Wo`)
-- Output: Single logit with sigmoid (binary classification)
-- **Trainable params**: ~300K (0.2% of total)
-
-Only LoRA adapters + classifier head are exchanged during FL, reducing communication cost.
-
 ## Spam Distribution Strategies
 
 Configure in `pyproject.toml`:
@@ -203,143 +193,6 @@ python -m src.synthetic_data.generator
  
  **Why SFT is required:**
  Without SFT pre-training, the model will **gamify the reward** by generating innocuous ham messages that trivially bypass the detector (e.g., "Hey, how are you?"). The detector correctly classifies these as ham, giving high reward, but the model never learns to generate *actual spam*. SFT on real spam data teaches the model what spam looks like, then RL optimizes for bypass while the LLM judge ensures spam quality is maintained.
-
-### Architecture
-
-```mermaid
-flowchart TB
-    subgraph FL["Federated Learning Loop"]
-        direction TB
-        FLServer["FL Server<br/>(Flower)"]
-        FLClients["FL Clients<br/>(ModernBERT + LoRA)"]
-        Aggregation["FedAvg<br/>Aggregation"]
-        
-        FLServer --> FLClients
-        FLClients --> Aggregation
-        Aggregation --> FLServer
-    end
-
-    subgraph ADV["Adversarial Training (Rounds 5, 10, ...)"]
-        direction TB
-        
-        subgraph PHASE1["Phase 1: SFT (runs once)"]
-            SpamData[("Real Spam Data<br/>spam_messages.json")]
-            SFTModel["Qwen3-1.7B<br/>+ LoRA"]
-            SpamData --> SFTModel
-        end
-        
-        subgraph PHASE2["Phase 2: RL (GRPO)"]
-            direction TB
-            Generator["Generator<br/>Qwen3-1.7B + LoRA<br/>(SFT-initialized)"]
-            SMS["Generated SMS"]
-            
-            subgraph REWARD["Combined Reward Function"]
-                direction LR
-                Detector["Detector<br/>ModernBERT + LoRA<br/>(from FL)"]
-                Judge["LLM Judge<br/>Qwen3-4B-Instruct"]
-                Diversity["Diversity<br/>Penalty<br/>(Jaccard)"]
-            end
-            
-            Generator --> SMS
-            SMS --> Detector
-            SMS --> Judge
-            SMS --> Diversity
-            
-            Detector -->|"bypass×boost<br/>gaming: -10"| RewardSum
-            Judge -->|"ham×judge×scale"| RewardSum
-            Diversity -->|"penalty: -1 max"| RewardSum
-            RewardSum["Total Reward"] -->|"GRPO Update"| Generator
-            
-            Scheduler["Progress Scheduler<br/>(rolling bypass rate)"]
-            Scheduler -->|"boost/scale"| RewardSum
-        end
-        
-        subgraph CALLBACKS["Training Callbacks"]
-            Profiler["Profiler<br/>(timing)"]
-            BypassTracker["Bypass Tracker<br/>(top-k models)"]
-            EarlyStop["Early Stopping<br/>(mode collapse)"]
-        end
-        
-        SFTModel -->|"merge + fresh LoRA"| Generator
-        PHASE2 --> CALLBACKS
-    end
-
-    subgraph OUTPUT["Outputs"]
-        BypassLog[("bypass_samples.json<br/>(HAM prob ≥ 0.5)")]
-        SelectedBypasses["select_best_bypasses()<br/>(judge ≥ 0.4, dedupe)"]
-        SpamDataset[("spam_messages.json<br/>+ adversarial samples")]
-    end
-
-    FL -->|"Save detector<br/>checkpoint"| ADV
-    ADV -->|"Log bypasses"| BypassLog
-    BypassLog --> SelectedBypasses
-    SelectedBypasses -->|"80/20 train/val"| SpamDataset
-    SpamDataset -->|"Adversarial samples<br/>to ALL clients"| FL
-
-    style FL fill:#e1f5fe
-    style ADV fill:#fff3e0
-    style OUTPUT fill:#e8f5e9
-    style PHASE1 fill:#fce4ec
-    style PHASE2 fill:#fff8e1
-    style REWARD fill:#f3e5f5
-    style CALLBACKS fill:#e0f2f1
-```
-
-**Detailed Flow:**
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         PHASE 1: SFT                            │
-│  Real Spam Data ──► Qwen3-1.7B + LoRA                           │
-│                     (learns spam patterns)                      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         PHASE 2: RL (GRPO)                      │
-│                                                                 │
-│  ┌──────────────────┐         ┌─────────────────────┐          │
-│  │ SFT-trained Gen  │ ──────► │  Generated SMS      │          │
-│  │ Qwen3-1.7B+LoRA  │         └──────────┬──────────┘          │
-│  └────────▲─────────┘                    │                      │
-│           │                              ▼                      │
-│           │              ┌───────────────────────────────┐      │
-│           │              │        REWARD SIGNALS         │      │
-│           │              │  ┌─────────────────────────┐  │      │
-│           │              │  │ ModernBERT Detector     │  │      │
-│           │◄─────────────│  │ bypass=+2, gaming=-10   │  │      │
-│           │              │  └─────────────────────────┘  │      │
-│           │              │  ┌─────────────────────────┐  │      │
-│           │              │  │ LLM Judge (quality)     │  │      │
-│           │◄─────────────│  │ Qwen3-4B-Instruct-2507  │  │      │
-│           │              │  │ bonus: +3 max           │  │      │
-│           │              │  └─────────────────────────┘  │      │
-│           │              │  ┌─────────────────────────┐  │      │
-│           │              │  │ Diversity Penalty       │  │      │
-│           │◄─────────────│  │ Jaccard similarity      │  │      │
-│           │              │  │ penalty: -1 max         │  │      │
-│           │              │  └─────────────────────────┘  │      │
-│           │              └───────────────────────────────┘      │
-│           │                                                     │
-│  ┌────────┴────────────────────────────────────────────────┐   │
-│  │                    CALLBACKS                             │   │
-│  │  • Profiler (timing per component)                       │   │
-│  │  • BypassTracker (saves top-2 models by bypass score)    │   │
-│  │  • EarlyStop (similarity≥0.7 for 10 steps = stop)        │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    FL INTEGRATION                               │
-│                                                                 │
-│  bypass_samples.json ──► select_best_bypasses() ──► spam_msgs  │
-│  (HAM prob ≥ 0.5)        (judge ≥ 0.4, dedupe)      + adversarial│
-│                                                                 │
-│  Adversarial samples distributed to ALL FL clients (uniform)   │
-│  with consistent train/val split across clients                │
-└─────────────────────────────────────────────────────────────────┘
-```
 
 ### Default Configuration
 
