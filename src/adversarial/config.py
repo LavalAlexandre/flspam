@@ -192,6 +192,7 @@ class GRPOSpamConfig:
     total_episodes: int = (
         DEFAULT_ADVERSARIAL_EPISODES  # Total prompt episodes (aligned with FL config)
     )
+    grpo_steps: int = 60  # Number of GRPO training steps per episode
     save_steps: int = 100
 
     # GPU config (populated by auto_configure)
@@ -227,9 +228,8 @@ class GRPOSpamConfig:
 
     @property
     def max_steps(self) -> int:
-        """Compute max_steps from total_episodes and effective batch size."""
-        effective_batch = self.per_device_batch_size * self.gradient_accumulation_steps
-        return self.total_episodes // effective_batch
+        """Return grpo_steps directly (explicit control over training duration)."""
+        return self.grpo_steps
 
     @property
     def torch_dtype(self):

@@ -66,6 +66,9 @@ adversarial-rounds = "8,15"  # FL rounds to run adversarial training (comma-sepa
 adversarial-episodes = 4000  # Training episodes per adversarial round
 adversarial-samples = 500  # Number of bypass samples to add to dataset
 sft-epochs = 3  # Number of epochs for SFT training
+grpo-steps = 60  # Number of GRPO training steps per episode
+grpo-num-generations = 8  # Number of completions generated per prompt in GRPO
+grpo-batch-size = 4  # Batch size for GRPO training
 
 # Default federation to use when running the app
 [tool.flwr.federations]

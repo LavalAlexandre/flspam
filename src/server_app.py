@@ -149,6 +149,9 @@ def main(grid: Grid, context: Context) -> None:
         "adversarial-samples", DEFAULT_ADVERSARIAL_SAMPLES
     )
     sft_epochs: int = context.run_config.get("sft-epochs", DEFAULT_SFT_EPOCHS)
+    grpo_steps: int = context.run_config.get("grpo-steps", 60)
+    grpo_num_generations: int = context.run_config.get("grpo-num-generations", 8)
+    grpo_batch_size: int = context.run_config.get("grpo-batch-size", 4)
 
     # Initialize W&B
     # Start with all run config values
@@ -248,6 +251,9 @@ def main(grid: Grid, context: Context) -> None:
                     total_episodes=adversarial_episodes,
                     wandb_run_id=_wandb_run.id if _wandb_run else None,
                     sft_epochs=sft_epochs,
+                    grpo_steps=grpo_steps,
+                    grpo_num_generations=grpo_num_generations,
+                    grpo_batch_size=grpo_batch_size,
                 )
 
                 print("[SERVER] ✓ Adversarial training complete!")

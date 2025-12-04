@@ -31,6 +31,9 @@ def run_adversarial_training(
     batch_size: int = 64,
     wandb_run_id: str = None,
     sft_epochs: int = DEFAULT_SFT_EPOCHS,
+    grpo_steps: int = 60,
+    grpo_num_generations: int = 8,
+    grpo_batch_size: int = 4,
 ) -> str:
     """
     Run adversarial training against the current detector.
@@ -70,11 +73,13 @@ def run_adversarial_training(
         lora_output_dir=str(output_dir_path / "grpo_lora"),
         bypass_log_path=bypass_log_path,
         total_episodes=total_episodes,
-        per_device_batch_size=batch_size,
+        per_device_batch_size=grpo_batch_size,
+        num_generations=grpo_num_generations,
         num_samples=total_episodes,  # Match samples to episodes
         wandb_project="flspam-adversarial",
         wandb_run_name=f"adversarial-{Path(detector_path).name}",
         print_every=5,  # More frequent logging for shorter runs
+        grpo_steps=grpo_steps,
     )
 
     # Create output directory
@@ -321,6 +326,9 @@ def run_adversarial_round(
     min_ham_prob: float = 0.6,
     wandb_run_id: str = None,
     sft_epochs: int = DEFAULT_SFT_EPOCHS,
+    grpo_steps: int = 60,
+    grpo_num_generations: int = 8,
+    grpo_batch_size: int = 4,
 ) -> dict:
     """
     Complete adversarial round: train generator, select best samples, add to dataset.
@@ -353,6 +361,9 @@ def run_adversarial_round(
         batch_size=batch_size,
         wandb_run_id=wandb_run_id,
         sft_epochs=sft_epochs,
+        grpo_steps=grpo_steps,
+        grpo_num_generations=grpo_num_generations,
+        grpo_batch_size=grpo_batch_size,
     )
 
     # Step 2: Select best bypass samples
