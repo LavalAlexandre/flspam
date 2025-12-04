@@ -8,10 +8,10 @@ Phase 2: RL with detector-only reward (learn to evade)
 Usage:
     # Run both phases
     uv run -m src.adversarial.train_twophase --detector-path final_model --spam-path data/spam_messages.json
-    
+
     # Run only SFT
     uv run -m src.adversarial.train_twophase --detector-path final_model --sft-only
-    
+
     # Run only RL (requires existing SFT adapter)
     uv run -m src.adversarial.train_twophase --detector-path final_model --rl-only --sft-adapter sft_spam_lora
 """
@@ -35,7 +35,7 @@ _DEFAULT_CONFIG = GRPOSpamConfig()
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments.
-    
+
     Defaults are pulled from GRPOSpamConfig to avoid duplication.
     """
     parser = argparse.ArgumentParser(
@@ -186,28 +186,28 @@ def main():
         print("\n" + "=" * 60)
         print("PHASE 1: Supervised Fine-Tuning on Spam")
         print("=" * 60)
-        
+
         wandb.init(
             project=args.wandb_project,
             name="sft-spam-generator",
             config={"phase": "sft", **config.to_dict()},
         )
-        
+
         model, tokenizer, _ = train_sft(
             config=config,
             spam_path=args.spam_path,
             output_dir=args.sft_output,
             num_epochs=args.sft_epochs,
         )
-        
+
         # Generate some samples to verify
         print("\n--- Sample generations from SFT model ---")
         samples = generate_from_sft(model, tokenizer, num_samples=3)
         for i, sample in enumerate(samples):
-            print(f"{i+1}. {sample[:100]}...")
-        
+            print(f"{i + 1}. {sample[:100]}...")
+
         wandb.finish()
-        
+
         # Update adapter path for RL phase
         sft_adapter = args.sft_output
     else:
@@ -215,11 +215,13 @@ def main():
 
     # Phase 2: RL
     if not args.sft_only:
-        reward_type = "Combined (Detector + LLM Judge)" if args.use_judge else "Detector-Only"
+        reward_type = (
+            "Combined (Detector + LLM Judge)" if args.use_judge else "Detector-Only"
+        )
         print("\n" + "=" * 60)
         print(f"PHASE 2: RL with {reward_type} Reward")
         print("=" * 60)
-        
+
         train_rl_phase(
             config=config,
             sft_adapter_path=sft_adapter,
@@ -236,7 +238,7 @@ def main():
         print(f"SFT adapter: {args.sft_output}/")
     if not args.sft_only:
         print(f"RL adapter:  {args.rl_output}/")
-    
+
     return 0
 
 

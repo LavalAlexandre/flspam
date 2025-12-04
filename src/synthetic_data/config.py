@@ -36,7 +36,16 @@ GENERATION_CONFIG = {
     "max_tokens": 60,
     "temperature": 0.9,
     "top_p": 0.95,
-    "stop": ["\n\n", "Them:", "You:", "THEM:", "ME:", "Best regards", "Regards,", "Sincerely"],
+    "stop": [
+        "\n\n",
+        "Them:",
+        "You:",
+        "THEM:",
+        "ME:",
+        "Best regards",
+        "Regards,",
+        "Sincerely",
+    ],
 }
 
 # =============================================================================
@@ -99,7 +108,7 @@ SCENARIO_TEMPLATES = {
         "Casual catch-up",
         "Sharing a meme or link",
         "Making loose plans",
-        "Asking for advice"
+        "Asking for advice",
     ],
     "colleagues": [
         "Quick work question",

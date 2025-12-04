@@ -1,7 +1,6 @@
 """Configuration for GRPO adversarial spam training."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 import torch
@@ -9,7 +8,7 @@ import torch
 
 def detect_gpu_config() -> dict:
     """Detect GPU type and return optimal configuration.
-    
+
     Returns:
         Dictionary with GPU-specific settings:
         - gpu_name: Name of the GPU
@@ -30,18 +29,18 @@ def detect_gpu_config() -> dict:
             "load_in_4bit": True,
             "gpu_memory_gb": 0,
         }
-    
+
     gpu_name = torch.cuda.get_device_name(0)
     gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
     compute_capability = torch.cuda.get_device_capability(0)
     major, minor = compute_capability
-    
+
     # BF16 requires compute capability >= 8.0 (Ampere+)
     has_bf16 = major >= 8
     # FP16 with Tensor Cores requires >= 7.0 (Volta+), efficient on >= 7.5 (Turing+)
     has_tensor_cores = major >= 7
     has_efficient_fp16 = major >= 7 and minor >= 5
-    
+
     # GPU-specific configurations
     # batch = per_device_batch_size (samples per forward pass)
     # For GRPO: effective = batch * num_generations * gradient_accumulation
@@ -52,39 +51,65 @@ def detect_gpu_config() -> dict:
         "P100": {"dtype": "float32", "batch": 32, "4bit": False, "num_gen": 4},
         "Tesla P": {"dtype": "float32", "batch": 32, "4bit": False, "num_gen": 4},
         "GTX 10": {"dtype": "float32", "batch": 16, "4bit": True, "num_gen": 4},
-        
         # Turing (T4, RTX 20xx) - Tensor Cores, good FP16 (16GB)
         "T4": {"dtype": "float16", "batch": 16, "4bit": False, "num_gen": 8},
         "Tesla T": {"dtype": "float16", "batch": 16, "4bit": False, "num_gen": 8},
         "RTX 20": {"dtype": "float16", "batch": 16, "4bit": False, "num_gen": 8},
-        
         # Ampere (A100, A10, RTX 30xx) - BF16 support
         # A100-80GB: Model ~3.5GB, leaves ~75GB for activations/KV cache
-        "A100-SXM4-80GB": {"dtype": "bfloat16", "batch": 256, "4bit": False, "num_gen": 16},  # 80GB - ULTRA
-        "A100-SXM4-40GB": {"dtype": "bfloat16", "batch": 128, "4bit": False, "num_gen": 16},  # 40GB
-        "A100-PCIE-80GB": {"dtype": "bfloat16", "batch": 256, "4bit": False, "num_gen": 16},  # 80GB PCIe
-        "A100-PCIE-40GB": {"dtype": "bfloat16", "batch": 128, "4bit": False, "num_gen": 16},  # 40GB PCIe
-        "A100": {"dtype": "bfloat16", "batch": 128, "4bit": False, "num_gen": 16},  # Default A100
+        "A100-SXM4-80GB": {
+            "dtype": "bfloat16",
+            "batch": 256,
+            "4bit": False,
+            "num_gen": 16,
+        },  # 80GB - ULTRA
+        "A100-SXM4-40GB": {
+            "dtype": "bfloat16",
+            "batch": 128,
+            "4bit": False,
+            "num_gen": 16,
+        },  # 40GB
+        "A100-PCIE-80GB": {
+            "dtype": "bfloat16",
+            "batch": 256,
+            "4bit": False,
+            "num_gen": 16,
+        },  # 80GB PCIe
+        "A100-PCIE-40GB": {
+            "dtype": "bfloat16",
+            "batch": 128,
+            "4bit": False,
+            "num_gen": 16,
+        },  # 40GB PCIe
+        "A100": {
+            "dtype": "bfloat16",
+            "batch": 128,
+            "4bit": False,
+            "num_gen": 16,
+        },  # Default A100
         "A10G": {"dtype": "bfloat16", "batch": 48, "4bit": False, "num_gen": 8},  # 24GB
         "A10": {"dtype": "bfloat16", "batch": 48, "4bit": False, "num_gen": 8},
         "RTX 30": {"dtype": "bfloat16", "batch": 24, "4bit": False, "num_gen": 8},
         "RTX A": {"dtype": "bfloat16", "batch": 24, "4bit": False, "num_gen": 8},
-        
         # Ada Lovelace (L4, RTX 40xx)
         "L4": {"dtype": "bfloat16", "batch": 48, "4bit": False, "num_gen": 8},  # 24GB
         "RTX 40": {"dtype": "bfloat16", "batch": 48, "4bit": False, "num_gen": 8},
-        
         # Hopper (H100)
-        "H100": {"dtype": "bfloat16", "batch": 256, "4bit": False, "num_gen": 16},  # 80GB - ULTRA
+        "H100": {
+            "dtype": "bfloat16",
+            "batch": 256,
+            "4bit": False,
+            "num_gen": 16,
+        },  # 80GB - ULTRA
     }
-    
+
     # Find matching config
     config = None
     for key, cfg in gpu_configs.items():
         if key in gpu_name:
             config = cfg
             break
-    
+
     # Fallback based on compute capability
     if config is None:
         if has_bf16:
@@ -95,7 +120,7 @@ def detect_gpu_config() -> dict:
             config = {"dtype": "float16", "batch": 24, "4bit": True, "num_gen": 8}
         else:
             config = {"dtype": "float32", "batch": 16, "4bit": True, "num_gen": 4}
-    
+
     # Adjust batch size based on memory - AGGRESSIVE settings
     # Only reduce for very low VRAM, otherwise trust GPU-specific config
     grad_accum = 1
@@ -120,10 +145,10 @@ def detect_gpu_config() -> dict:
     else:
         # 48GB+ (A100-40GB, A100-80GB, H100) - use GPU-specific config as-is (256 for 80GB)
         grad_accum = 1
-    
+
     config["grad_accum"] = grad_accum
     config["num_gen"] = num_gen
-    
+
     return {
         "gpu_name": gpu_name,
         "has_bf16": has_bf16,
@@ -150,7 +175,9 @@ class GRPOSpamConfig:
     lora_rank: int = 32
     load_in_4bit: Optional[bool] = None  # Auto-detect if None
     gpu_memory_utilization: float = 0.90  # Use more VRAM
-    dtype: Optional[str] = None  # Auto-detect if None ("float32", "float16", "bfloat16")
+    dtype: Optional[str] = (
+        None  # Auto-detect if None ("float32", "float16", "bfloat16")
+    )
 
     # Training settings
     learning_rate: float = 5e-5  # Higher LR for faster convergence in short RL runs
@@ -172,29 +199,33 @@ class GRPOSpamConfig:
     def auto_configure(self):
         """Auto-detect GPU and configure optimal settings."""
         self._gpu_config = detect_gpu_config()
-        
+
         # Apply auto-detected settings if not explicitly set
         if self.dtype is None:
             self.dtype = self._gpu_config["recommended_dtype"]
-        
+
         if self.load_in_4bit is None:
             self.load_in_4bit = self._gpu_config["load_in_4bit"]
-        
+
         if self.per_device_batch_size is None:
             self.per_device_batch_size = self._gpu_config["recommended_batch_size"]
-        
+
         if self.gradient_accumulation_steps is None:
-            self.gradient_accumulation_steps = self._gpu_config.get("recommended_grad_accum", 1)
-        
+            self.gradient_accumulation_steps = self._gpu_config.get(
+                "recommended_grad_accum", 1
+            )
+
         if self.num_generations is None:
-            self.num_generations = self._gpu_config.get("recommended_num_generations", 8)
+            self.num_generations = self._gpu_config.get(
+                "recommended_num_generations", 8
+            )
 
     @property
     def max_steps(self) -> int:
         """Compute max_steps from total_episodes and effective batch size."""
         effective_batch = self.per_device_batch_size * self.gradient_accumulation_steps
         return self.total_episodes // effective_batch
-    
+
     @property
     def torch_dtype(self):
         """Get torch dtype object."""
@@ -213,7 +244,7 @@ class GRPOSpamConfig:
     repetition_penalty: float = 1.15  # Discourage repeating tokens/phrases
     max_completion_length: int = 100
     max_prompt_length: int = 256
-    
+
     # Anti-mode-collapse settings
     diversity_weight: float = 1.0  # Penalty for similar outputs in batch (0 to disable)
 
@@ -258,26 +289,28 @@ class GRPOSpamConfig:
             "gpu_memory_gb": self._gpu_config.get("gpu_memory_gb", 0),
             "compute_capability": self._gpu_config.get("compute_capability", "unknown"),
         }
-    
+
     def print_gpu_info(self):
         """Print detected GPU configuration."""
         effective_batch = self.per_device_batch_size * self.gradient_accumulation_steps
-        
-        print(f"{'='*50}")
+
+        print(f"{'=' * 50}")
         print(f"GPU: {self._gpu_config.get('gpu_name', 'unknown')}")
         print(f"  Memory: {self._gpu_config.get('gpu_memory_gb', 0):.1f} GB")
-        print(f"  Compute Capability: {self._gpu_config.get('compute_capability', 'unknown')}")
+        print(
+            f"  Compute Capability: {self._gpu_config.get('compute_capability', 'unknown')}"
+        )
         print(f"  BF16 Support: {self._gpu_config.get('has_bf16', False)}")
         print(f"  FP16 Tensor Cores: {self._gpu_config.get('has_fp16', False)}")
-        print(f"Configuration:")
+        print("Configuration:")
         print(f"  dtype: {self.dtype}")
         print(f"  batch_size: {self.per_device_batch_size}")
         print(f"  gradient_accumulation: {self.gradient_accumulation_steps}")
         print(f"  effective_batch: {effective_batch}")
         print(f"  num_generations: {self.num_generations}")
         print(f"  load_in_4bit: {self.load_in_4bit}")
-        print(f"Training:")
+        print("Training:")
         print(f"  total_episodes: {self.total_episodes}")
         print(f"  max_steps: {self.max_steps}")
         print(f"  samples_per_step: {effective_batch * self.num_generations}")
-        print(f"{'='*50}")
+        print(f"{'=' * 50}")

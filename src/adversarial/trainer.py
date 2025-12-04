@@ -13,7 +13,7 @@ from datasets import Dataset
 from trl import GRPOConfig, GRPOTrainer
 
 from .config import GRPOSpamConfig
-from .prompts import CHAT_TEMPLATE, SYSTEM_PROMPT, create_prompt_messages, generate_spam_prompt
+from .prompts import CHAT_TEMPLATE, create_prompt_messages, generate_spam_prompt
 from .rewards import RewardFunctions
 
 
@@ -58,12 +58,14 @@ def create_dataset(config: GRPOSpamConfig) -> Dataset:
     data = []
     for _ in range(config.num_samples):
         prompt_text, metadata = generate_spam_prompt()
-        data.append({
-            "prompt": create_prompt_messages(prompt_text),
-            "prompt_text": prompt_text,  # Raw prompt for logging
-            "metadata": metadata,  # Category info for bypass samples
-            "answer": "",
-        })
+        data.append(
+            {
+                "prompt": create_prompt_messages(prompt_text),
+                "prompt_text": prompt_text,  # Raw prompt for logging
+                "metadata": metadata,  # Category info for bypass samples
+                "answer": "",
+            }
+        )
 
     return Dataset.from_list(data)
 
@@ -81,7 +83,7 @@ def train_adversarial_generator(config: GRPOSpamConfig) -> tuple:
     print("=" * 60)
     print("GRPO Adversarial Spam Generator Training")
     print("=" * 60)
-    
+
     # Print GPU configuration
     print("\n[GPU Configuration]")
     config.print_gpu_info()
@@ -149,7 +151,7 @@ def train_adversarial_generator(config: GRPOSpamConfig) -> tuple:
     # Save LoRA adapter
     print(f"\nSaving LoRA adapter to {config.lora_output_dir}/")
     # Use PEFT's save_pretrained (works with both unsloth and standard PEFT models)
-    if hasattr(model, 'save_lora'):
+    if hasattr(model, "save_lora"):
         # Unsloth model
         model.save_lora(config.lora_output_dir)
     else:
@@ -160,7 +162,9 @@ def train_adversarial_generator(config: GRPOSpamConfig) -> tuple:
     # Finalize bypass log and print profiling
     reward_funcs.finalize_bypass_log()
     reward_funcs.print_profiling_summary()
-    print(f"Saved {reward_funcs.get_bypass_count()} bypass samples to {config.bypass_log_path}")
+    print(
+        f"Saved {reward_funcs.get_bypass_count()} bypass samples to {config.bypass_log_path}"
+    )
 
     return model, tokenizer, trainer
 
@@ -183,7 +187,7 @@ def generate_samples(
 
     # Tokenize input
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
-    
+
     # Generate using standard HuggingFace
     with torch.no_grad():
         outputs = model.generate(
@@ -196,14 +200,14 @@ def generate_samples(
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
-    
+
     # Decode and extract generated text (remove input prompt)
     input_length = inputs["input_ids"].shape[1]
     generated_texts = []
     for output in outputs:
         generated = tokenizer.decode(output[input_length:], skip_special_tokens=True)
         generated_texts.append(generated.strip())
-    
+
     return generated_texts
 
 
@@ -235,7 +239,7 @@ def evaluate_bypass_rate(
                 bypass_count += 1
 
         if (i + 1) % 20 == 0:
-            print(f"  Evaluated {i+1}/{num_eval}...")
+            print(f"  Evaluated {i + 1}/{num_eval}...")
 
     results = {
         "bypass_rate": bypass_count / num_eval,
@@ -243,16 +247,18 @@ def evaluate_bypass_rate(
         "num_eval": num_eval,
     }
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"EVALUATION RESULTS ({num_eval} samples)")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     print(f"Bypass Rate: {results['bypass_rate']:.1%}")
     print(f"Average HAM Probability: {results['avg_ham_prob']:.1%}")
 
-    wandb.log({
-        "eval/bypass_rate": results["bypass_rate"],
-        "eval/avg_ham_prob": results["avg_ham_prob"],
-    })
+    wandb.log(
+        {
+            "eval/bypass_rate": results["bypass_rate"],
+            "eval/avg_ham_prob": results["avg_ham_prob"],
+        }
+    )
 
     return results
 
@@ -273,7 +279,9 @@ def export_adversarial_samples(
     max_attempts = config.export_num_samples * 3
 
     random.seed(456)
-    while len(adversarial_samples) < config.export_num_samples and attempts < max_attempts:
+    while (
+        len(adversarial_samples) < config.export_num_samples and attempts < max_attempts
+    ):
         prompt = generate_spam_prompt()
         samples = generate_samples(model, tokenizer, lora_path, prompt, num_samples=1)
         attempts += 1
@@ -284,14 +292,18 @@ def export_adversarial_samples(
             ham_prob = probs[0, 0].item()
 
             if ham_prob >= config.export_bypass_threshold:
-                adversarial_samples.append({
-                    "text": sample,
-                    "bypass_confidence": ham_prob,
-                    "prompt": prompt,
-                })
+                adversarial_samples.append(
+                    {
+                        "text": sample,
+                        "bypass_confidence": ham_prob,
+                        "prompt": prompt,
+                    }
+                )
 
         if len(adversarial_samples) % 50 == 0 and len(adversarial_samples) > 0:
-            print(f"  Collected {len(adversarial_samples)}/{config.export_num_samples} (attempts: {attempts})")
+            print(
+                f"  Collected {len(adversarial_samples)}/{config.export_num_samples} (attempts: {attempts})"
+            )
 
     # Save to file
     output_path = Path(config.export_path)
@@ -299,6 +311,6 @@ def export_adversarial_samples(
         json.dump(adversarial_samples, f, indent=2)
 
     print(f"\nSaved {len(adversarial_samples)} adversarial samples to {output_path}")
-    print(f"Acceptance rate: {len(adversarial_samples)/attempts:.1%}")
+    print(f"Acceptance rate: {len(adversarial_samples) / attempts:.1%}")
 
     return adversarial_samples

@@ -69,7 +69,10 @@ SPAM_CONTEXTS = [
 
 # Payload types to request
 PAYLOAD_TYPES = [
-    ("url", "Include a URL (can be shortened like bit.ly or a domain like example.com)."),
+    (
+        "url",
+        "Include a URL (can be shortened like bit.ly or a domain like example.com).",
+    ),
     ("phone", "Include a phone number to call or text."),
     ("short_code", "Include a short code to text (like 'text YES to 12345')."),
     ("email", "Include an email address to contact."),
@@ -116,7 +119,7 @@ CHAT_TEMPLATE = (
 
 def generate_spam_prompt() -> tuple[str, dict]:
     """Generate a random spam task prompt with metadata.
-    
+
     Returns:
         Tuple of (prompt_text, metadata_dict) where metadata contains:
         - objective: The spam goal
@@ -135,9 +138,15 @@ def generate_spam_prompt() -> tuple[str, dict]:
     include_email = random.random() < 0.15
     include_call_action = random.random() < 0.3
     include_urgency = random.random() < 0.6
-    
+
     # Ensure at least one payload type is requested
-    if not (include_link or include_phone or include_short_code or include_email or include_call_action):
+    if not (
+        include_link
+        or include_phone
+        or include_short_code
+        or include_email
+        or include_call_action
+    ):
         # Default to URL or phone
         if random.random() < 0.5:
             include_link = True

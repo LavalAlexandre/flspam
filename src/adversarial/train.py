@@ -2,7 +2,7 @@
 """
 GRPO Adversarial Spam Generator Training Script.
 
-Train a Qwen3-4B-Instruct-2507 (non-thinking) model to generate spam SMS 
+Train a Qwen3-4B-Instruct-2507 (non-thinking) model to generate spam SMS
 that bypasses a ModernBERT detector.
 
 Usage:
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     # Use config defaults as the single source of truth
     defaults = GRPOSpamConfig()
-    
+
     parser = argparse.ArgumentParser(
         description="Train adversarial spam generator using GRPO",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -193,9 +193,13 @@ def main():
         generator_model=args.generator_model,
         detector_path=args.detector_path,
         lora_rank=args.lora_rank,
-        load_in_4bit=args.load_in_4bit if args.load_in_4bit else None,  # Auto-detect if not set
+        load_in_4bit=args.load_in_4bit
+        if args.load_in_4bit
+        else None,  # Auto-detect if not set
         total_episodes=args.total_episodes,
-        per_device_batch_size=args.batch_size if args.batch_size else None,  # Auto-detect if not set
+        per_device_batch_size=args.batch_size
+        if args.batch_size
+        else None,  # Auto-detect if not set
         num_generations=args.num_generations,
         learning_rate=args.learning_rate,
         num_samples=args.num_samples,

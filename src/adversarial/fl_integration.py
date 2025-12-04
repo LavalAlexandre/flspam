@@ -4,7 +4,6 @@ import gc
 import json
 import random
 from pathlib import Path
-from typing import Literal
 
 import torch
 import wandb
@@ -35,7 +34,7 @@ def run_adversarial_training(
 ) -> str:
     """
     Run adversarial training against the current detector.
-    
+
     Args:
         detector_path: Path to the current aggregated detector model.
         output_dir: Directory to save adversarial outputs.
@@ -43,29 +42,28 @@ def run_adversarial_training(
         batch_size: Batch size for training.
         wandb_run_id: ID of the active FL W&B run (to resume after).
         sft_epochs: Number of epochs for SFT training.
-        
+
     Returns:
         Path to the bypass_samples.json file.
     """
     print("\n" + "=" * 60)
     print("ADVERSARIAL TRAINING PHASE")
     print("=" * 60)
-    
+
     # Clear memory before loading adversarial models
     clear_memory()
     print("[ADV] Cleared memory before adversarial training")
-    
+
     # Import here to avoid loading heavy models at module import time
     from .config import GRPOSpamConfig
     from .sft import train_sft
     from .rl_simple import train_rl_phase
 
-    
     # Create config for this adversarial round
     # Use absolute path to ensure file is created in correct location
     output_dir_path = Path(output_dir).resolve()
     bypass_log_path = str(output_dir_path / "bypass_samples.json")
-    
+
     config = GRPOSpamConfig(
         detector_path=detector_path,
         output_dir=str(output_dir_path / "grpo_outputs"),
@@ -78,15 +76,15 @@ def run_adversarial_training(
         wandb_run_name=f"adversarial-{Path(detector_path).name}",
         print_every=5,  # More frequent logging for shorter runs
     )
-    
+
     # Create output directory
     output_dir_path.mkdir(parents=True, exist_ok=True)
-    
+
     # If we have an active FL run, finish it so adversarial training can start its own run
     if wandb_run_id:
         print(f"[ADV] Pausing FL W&B run ({wandb_run_id}) for adversarial training...")
         wandb.finish()
-    
+
     try:
         # Phase 1: SFT (Supervised Fine-Tuning)
         # Check if SFT adapter exists, if not train it
@@ -115,14 +113,17 @@ def run_adversarial_training(
         print("\n" + "=" * 60)
         print("PHASE 2: RL (Adversarial Optimization)")
         print("=" * 60)
-        
+
         # Clean RL output directory to ensure fresh training each time
         rl_output_dir = output_dir_path / "rl_adapter"
         if rl_output_dir.exists():
             import shutil
-            print(f"[ADV] Removing old RL adapter at {rl_output_dir} to train fresh from SFT...")
+
+            print(
+                f"[ADV] Removing old RL adapter at {rl_output_dir} to train fresh from SFT..."
+            )
             shutil.rmtree(rl_output_dir)
-        
+
         try:
             # Train RL phase using SFT adapter as starting point
             # Note: load_sft_model_for_rl always merges SFT and adds fresh LoRA
@@ -135,7 +136,7 @@ def run_adversarial_training(
                 judge_weight=3.0,  # QUALITY_BONUS: +3 for high-quality spam
                 bypass_log_path=bypass_log_path,
             )
-            
+
         except Exception as e:
             print(f"[ADV] Error during RL training: {e}")
             raise
@@ -143,9 +144,9 @@ def run_adversarial_training(
             # Always clear memory after adversarial training
             clear_memory()
             print("[ADV] Cleared memory after adversarial training")
-        
+
         return bypass_log_path
-        
+
     except Exception as e:
         print(f"[ADV] Error during training: {e}")
         raise
@@ -153,12 +154,12 @@ def run_adversarial_training(
         # Always clear memory after adversarial training
         clear_memory()
         print("[ADV] Cleared memory after adversarial training")
-        
+
         # Resume FL W&B run if it existed
         if wandb_run_id:
             print(f"[ADV] Resuming FL W&B run ({wandb_run_id})...")
             wandb.init(id=wandb_run_id, resume="allow", project="flspam")
-    
+
     return bypass_log_path
 
 
@@ -177,12 +178,12 @@ def select_best_bypasses(
         min_ham_prob: Minimum HAM probability threshold.
         min_judge_score: Minimum judge score threshold.
         round_num: FL round number (for filename).
-        
+
     Returns:
         List of selected spam samples.
     """
     print(f"\n[ADV] Selecting best bypasses from {bypass_log_path}")
-    
+
     # Load bypass samples
     with open(bypass_log_path, "r") as f:
         content = f.read()
@@ -190,17 +191,24 @@ def select_best_bypasses(
         if not content.strip().endswith("]"):
             content = content.rstrip().rstrip(",") + "\n]"
         bypasses = json.loads(content)
-    
+
     print(f"[ADV] Loaded {len(bypasses)} raw bypass samples")
-    
+
     # Filter by HAM probability and judge score
-    filtered = [s for s in bypasses if s.get("ham_prob", 0) >= min_ham_prob and s.get("judge_score", 0) >= min_judge_score]
-    print(f"[ADV] {len(filtered)} samples above {min_ham_prob:.0%} HAM and {min_judge_score:.1f} judge score thresholds")
+    filtered = [
+        s
+        for s in bypasses
+        if s.get("ham_prob", 0) >= min_ham_prob
+        and s.get("judge_score", 0) >= min_judge_score
+    ]
+    print(
+        f"[ADV] {len(filtered)} samples above {min_ham_prob:.0%} HAM and {min_judge_score:.1f} judge score thresholds"
+    )
     # Sort by HAM probability (best bypasses first)
     filtered.sort(key=lambda x: x.get("ham_prob", 0), reverse=True)
     # Sort by judge score (best spam quality first)
     filtered.sort(key=lambda x: x.get("judge_score", 0), reverse=True)
-    
+
     # Deduplicate by SMS text (keep highest ham_prob version)
     seen_texts = set()
     unique = []
@@ -209,18 +217,20 @@ def select_best_bypasses(
         if text and text not in seen_texts:
             seen_texts.add(text)
             unique.append(sample)
-    
+
     print(f"[ADV] {len(unique)} unique samples after deduplication")
-    
+
     selected = unique[:num_samples]
     print(f"[ADV] Selected {len(selected)} best bypass samples")
-    
+
     # Save selected bypasses to JSON with round-specific filename
-    selected_path = Path(bypass_log_path).parent / f"selected_bypasses_round_{round_num}.json"
+    selected_path = (
+        Path(bypass_log_path).parent / f"selected_bypasses_round_{round_num}.json"
+    )
     with open(selected_path, "w") as f:
         json.dump(selected, f, indent=2)
     print(f"[ADV] Saved selected bypasses to {selected_path}")
-    
+
     return selected
 
 
@@ -233,38 +243,38 @@ def add_adversarial_to_dataset(
 ) -> dict:
     """
     Add adversarial samples to the spam dataset.
-    
+
     Args:
         selected_samples: List of bypass samples to add.
         spam_file: Path to spam_messages.json.
         train_ratio: Fraction for training (rest goes to validation).
         seed: Random seed for train/val split.
         round_num: FL round number (for metadata).
-        
+
     Returns:
         Dict with stats about added samples.
     """
     print(f"\n[ADV] Adding {len(selected_samples)} adversarial samples to dataset")
-    
+
     # Load existing spam
     with open(spam_file, "r") as f:
         spam_data = json.load(f)
-    
+
     original_count = len(spam_data)
     print(f"[ADV] Original spam count: {original_count}")
-    
+
     # Convert bypass samples to spam format
     random.seed(seed)
     random.shuffle(selected_samples)
-    
+
     train_count = int(len(selected_samples) * train_ratio)
-    
+
     added_train = 0
     added_val = 0
-    
+
     for i, sample in enumerate(selected_samples):
         is_train = i < train_count
-        
+
         spam_entry = {
             "text": sample["sms"],
             "label": 1,  # Spam
@@ -275,18 +285,18 @@ def add_adversarial_to_dataset(
             "context": sample.get("context", "unknown"),
             "split": "train" if is_train else "val",
         }
-        
+
         spam_data.append(spam_entry)
-        
+
         if is_train:
             added_train += 1
         else:
             added_val += 1
-    
+
     # Save updated spam file
     with open(spam_file, "w") as f:
         json.dump(spam_data, f, indent=2)
-    
+
     stats = {
         "original_count": original_count,
         "added_train": added_train,
@@ -294,13 +304,11 @@ def add_adversarial_to_dataset(
         "added_total": added_train + added_val,
         "new_total": len(spam_data),
     }
-    
+
     print(f"[ADV] Added {added_train} train + {added_val} val samples")
     print(f"[ADV] New spam total: {len(spam_data)}")
-    
+
     return stats
-
-
 
 
 def run_adversarial_round(
@@ -316,7 +324,7 @@ def run_adversarial_round(
 ) -> dict:
     """
     Complete adversarial round: train generator, select best samples, add to dataset.
-    
+
     Args:
         detector_path: Path to current detector model.
         round_num: FL round number (for logging).
@@ -325,18 +333,18 @@ def run_adversarial_round(
         total_episodes: Training episodes for adversarial generator.
         batch_size: Batch size.
         min_ham_prob: Minimum bypass confidence.
-        
+
     Returns:
         Dict with statistics.
     """
     output_dir = f"{output_base_dir}/round_{round_num}"
-    
+
     print(f"\n{'#' * 60}")
     print(f"# ADVERSARIAL ROUND {round_num}")
     print(f"# Detector: {detector_path}")
     print(f"# Output: {output_dir}")
     print(f"{'#' * 60}")
-    
+
     # Step 1: Train adversarial generator
     bypass_log_path = run_adversarial_training(
         detector_path=detector_path,
@@ -346,7 +354,7 @@ def run_adversarial_round(
         wandb_run_id=wandb_run_id,
         sft_epochs=sft_epochs,
     )
-    
+
     # Step 2: Select best bypass samples
     selected = select_best_bypasses(
         bypass_log_path=bypass_log_path,
@@ -354,14 +362,14 @@ def run_adversarial_round(
         min_ham_prob=min_ham_prob,
         round_num=round_num,  # Pass round number
     )
-    
+
     # Step 3: Add to dataset
     dataset_stats = add_adversarial_to_dataset(
         selected_samples=selected,
         train_ratio=0.8,
         round_num=round_num,  # Pass round number
     )
-    
+
     # Combined stats
     stats = {
         "round": round_num,
@@ -370,12 +378,12 @@ def run_adversarial_round(
         "num_bypasses_found": len(selected),
         **dataset_stats,
     }
-    
+
     # Save stats
     stats_path = f"{output_dir}/adversarial_stats.json"
     with open(stats_path, "w") as f:
         json.dump(stats, f, indent=2)
-    
+
     print(f"\n[ADV] Round {round_num} complete! Stats saved to {stats_path}")
-    
+
     return stats

@@ -87,6 +87,7 @@ insecure = true  # Remove this line to enable TLS
 
 [dependency-groups]
 dev = [
+    "ruff>=0.14.7",
     "typer>=0.20.0",
 ]
 # root-certificates = "<PATH/TO/ca.crt>"  # For TLS setup

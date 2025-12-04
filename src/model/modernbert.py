@@ -1,5 +1,4 @@
-import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType, PeftModel
 
 # ModernBERT for SMS Spam Classification
@@ -10,11 +9,11 @@ MODEL_NAME = "answerdotai/ModernBERT-base"
 # Default LoRA configuration for ModernBERT
 DEFAULT_LORA_CONFIG = LoraConfig(
     task_type=TaskType.SEQ_CLS,
-    r=8,                      # LoRA rank
-    lora_alpha=16,            # LoRA alpha (scaling factor)
-    lora_dropout=0.1,         # Dropout for LoRA layers
+    r=8,  # LoRA rank
+    lora_alpha=16,  # LoRA alpha (scaling factor)
+    lora_dropout=0.1,  # Dropout for LoRA layers
     target_modules=["Wqkv", "Wo"],  # ModernBERT attention layers
-    bias="none",              # Don't train bias terms
+    bias="none",  # Don't train bias terms
 )
 
 
@@ -28,11 +27,11 @@ def create_model(
     lora_config: LoraConfig | None = None,
 ):
     """Create a ModernBERT classifier for binary spam detection.
-    
+
     Args:
         use_lora: Whether to apply LoRA adapters (default True for fine-tuning)
         lora_config: Custom LoRA config, uses DEFAULT_LORA_CONFIG if None
-        
+
     Returns:
         Model ready for training with Trainer or manual loop
     """
@@ -41,13 +40,13 @@ def create_model(
         MODEL_NAME,
         num_labels=2,  # Binary classification with CrossEntropyLoss
     )
-    
+
     # Apply LoRA if requested
     if use_lora:
         config = lora_config or DEFAULT_LORA_CONFIG
         model = get_peft_model(model, config)
         model.print_trainable_parameters()
-    
+
     return model
 
 
@@ -72,8 +71,8 @@ def load_model(path: str, use_lora: bool = True):
 
 # Label mapping for spam classification
 LABEL_MAP = {
-    0: "ham",    # Normal message
-    1: "spam",   # Spam message
+    0: "ham",  # Normal message
+    1: "spam",  # Spam message
 }
 
 LABEL_TO_ID = {v: k for k, v in LABEL_MAP.items()}
