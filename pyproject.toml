@@ -78,19 +78,7 @@ options.num-supernodes = 20  # Update this to match your persona count
 options.backend.client-resources.num-cpus = 1
 options.backend.client-resources.num-gpus = 0.25  # 4 clients can share GPU in parallel
 
-# Ray runtime excludes (large model files that shouldn't be uploaded)
-options.backend.init-args.runtime-env.excludes = [
-    "sft_spam_lora",
-    "rl_spam_lora", 
-    "final_model",
-    "checkpoints",
-    "adversarial_outputs",
-    "*.safetensors",
-    "*.pt",
-    "*.bin",
-    ".venv",
-    ".git",
-]
+# Note: Large model files are excluded via .gitignore which Ray respects
 
 # Remote federation example for use with SuperLink
 [tool.flwr.federations.remote-federation]
