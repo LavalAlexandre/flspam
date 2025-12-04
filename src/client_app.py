@@ -9,7 +9,7 @@ import wandb
 from flwr.client import ClientApp
 from flwr.common import Context, Message, ArrayRecord, MetricRecord, RecordDict
 
-from src.task import get_model, load_data
+from src.task import get_model, load_data, compute_class_weights
 from src.task import test as test_fn
 from src.task import train as train_fn
 
@@ -22,38 +22,41 @@ app = ClientApp()
 
 def _log_to_wandb(partition_id: int, context: Context, metrics: dict) -> None:
     """Log metrics to wandb, handling run lifecycle properly for Ray actors."""
-    try:
-        # Use wandb.log with commit=True to avoid issues with run state
-        # Each call is a separate "step" - wandb will auto-increment
-        run_name = f"client-{partition_id}"
-        spam_strategy = context.run_config.get("spam-strategy", "iid")
-        spam_alpha = context.run_config.get("spam-alpha", 0.5)
+    # Client logging disabled as per configuration
+    return
+    
+    # try:
+    #     # Use wandb.log with commit=True to avoid issues with run state
+    #     # Each call is a separate "step" - wandb will auto-increment
+    #     run_name = f"client-{partition_id}"
+    #     spam_strategy = context.run_config.get("spam-strategy", "iid")
+    #     spam_alpha = context.run_config.get("spam-alpha", 0.5)
         
-        # Always init a new run (reinit=True handles cleanup)
-        # Use resume="allow" to continue if run exists
-        run = wandb.init(
-            project="flspam",
-            name=run_name,
-            id=f"client-{partition_id}-{context.run_config.get('run-id', 'default')}",
-            group="federated-clients",
-            job_type="client",
-            config={
-                "partition_id": partition_id,
-                "num_partitions": context.node_config["num-partitions"],
-                "spam_strategy": spam_strategy,
-                "spam_alpha": spam_alpha,
-                "local_epochs": context.run_config.get("local-epochs", 2),
-                "batch_size": context.run_config.get("batch-size", 32),
-            },
-            reinit=True,
-            resume="allow",
-        )
+    #     # Always init a new run (reinit=True handles cleanup)
+    #     # Use resume="allow" to continue if run exists
+    #     run = wandb.init(
+    #         project="flspam",
+    #         name=run_name,
+    #         id=f"client-{partition_id}-{context.run_config.get('run-id', 'default')}",
+    #         group="federated-clients",
+    #         job_type="client",
+    #         config={
+    #             "partition_id": partition_id,
+    #             "num_partitions": context.node_config["num-partitions"],
+    #             "spam_strategy": spam_strategy,
+    #             "spam_alpha": spam_alpha,
+    #             "local_epochs": context.run_config.get("local-epochs", 2),
+    #             "batch_size": context.run_config.get("batch-size", 32),
+    #         },
+    #         reinit=True,
+    #         resume="allow",
+    #     )
         
-        wandb.log(metrics)
-        wandb.finish()
+    #     wandb.log(metrics)
+    #     wandb.finish()
         
-    except Exception as e:
-        log.warning(f"[P{partition_id}] Failed to log to wandb: {e}")
+    # except Exception as e:
+    #     log.warning(f"[P{partition_id}] Failed to log to wandb: {e}")
 
 
 @app.train()
@@ -96,6 +99,13 @@ def train(msg: Message, context: Context) -> Message:
     )
     log.info(f"[P{partition_id}] Data loaded in {time.time() - t0:.2f}s - {len(trainloader.dataset)} samples, {len(trainloader)} batches (bs={batch_size})")
 
+    # Compute class weights for balanced training
+    use_class_weights = context.run_config.get("use-class-weights", True)
+    class_weights = None
+    if use_class_weights:
+        class_weights = compute_class_weights(trainloader)
+        log.info(f"[P{partition_id}] Class weights: HAM={class_weights[0]:.2f}, SPAM={class_weights[1]:.2f}")
+
     # Call the training function
     log.info(f"[P{partition_id}] Starting training: {context.run_config['local-epochs']} epochs, lr={msg.content['config']['lr']}")
     t0 = time.time()
@@ -105,6 +115,7 @@ def train(msg: Message, context: Context) -> Message:
         context.run_config["local-epochs"],
         msg.content["config"]["lr"],
         device,
+        class_weights=class_weights,
     )
     training_time = time.time() - t0
     log.info(f"[P{partition_id}] Training completed in {training_time:.2f}s - loss: {train_loss:.4f}")

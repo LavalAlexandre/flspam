@@ -1,5 +1,6 @@
 """flspam: A Flower / PyTorch app for SMS spam classification."""
 
+import gc
 import os
 from pathlib import Path
 
@@ -106,6 +107,12 @@ def eval_metrics_aggregator(replies: list[RecordDict], weight_key: str) -> Metri
     })
 
 
+from .config_defaults import (
+    DEFAULT_ADVERSARIAL_EPISODES,
+    DEFAULT_ADVERSARIAL_SAMPLES,
+    DEFAULT_SFT_EPOCHS,
+)
+
 @app.main()
 def main(grid: Grid, context: Context) -> None:
     """Main entry point for the ServerApp."""
@@ -119,20 +126,29 @@ def main(grid: Grid, context: Context) -> None:
     spam_strategy: str = context.run_config.get("spam-strategy", "iid")
     spam_alpha: float = context.run_config.get("spam-alpha", 0.5)
     save_every: int = context.run_config.get("save-every", 1)  # Save checkpoint every N rounds
+    
+    # Adversarial training config
+    adversarial_rounds_str: str = context.run_config.get("adversarial-rounds", "5")
+    # Parse comma-separated string to list of ints
+    adversarial_rounds: list = [int(r.strip()) for r in adversarial_rounds_str.split(",") if r.strip()]
+    adversarial_episodes: int = context.run_config.get("adversarial-episodes", DEFAULT_ADVERSARIAL_EPISODES)
+    adversarial_samples: int = context.run_config.get("adversarial-samples", DEFAULT_ADVERSARIAL_SAMPLES)
+    sft_epochs: int = context.run_config.get("sft-epochs", DEFAULT_SFT_EPOCHS)
 
     # Initialize W&B
+    # Start with all run config values
+    wandb_config = dict(context.run_config)
+    # Add computed/parsed values
+    wandb_config.update({
+        "num_clients": get_num_clients(),
+        "model": "ModernBERT-base + LoRA",
+        "adversarial_rounds_list": adversarial_rounds,  # Log parsed list alongside string
+    })
+
     _wandb_run = wandb.init(
         project="flspam",
         name=f"fedavg-{num_rounds}r-{get_num_clients()}c",
-        config={
-            "num_rounds": num_rounds,
-            "fraction_train": fraction_train,
-            "lr": lr,
-            "num_clients": get_num_clients(),
-            "spam_strategy": spam_strategy,
-            "spam_alpha": spam_alpha,
-            "model": "ModernBERT-base + LoRA",
-        },
+        config=wandb_config,
     )
 
     # Load global model with LoRA
@@ -149,6 +165,8 @@ def main(grid: Grid, context: Context) -> None:
     # Initialize FedAvg strategy with custom metric aggregation for W&B logging
     strategy = FedAvg(
         fraction_train=fraction_train,
+        fraction_evaluate=1.0,
+        min_evaluate_nodes=2,
         train_metrics_aggr_fn=train_metrics_aggregator,
         evaluate_metrics_aggr_fn=eval_metrics_aggregator,
     )
@@ -186,6 +204,49 @@ def main(grid: Grid, context: Context) -> None:
                 "f1": eval_metrics.get("eval_f1", 0) if eval_metrics else 0,
             }
             _save_checkpoint(global_model, round_num, metrics)
+        
+        # Run adversarial training at specified rounds
+        if round_num in adversarial_rounds:
+            print(f"\n[SERVER] 🎯 Running adversarial training at round {round_num}...")
+            
+            # Save current model for adversarial training
+            adversarial_detector_path = f"checkpoints/round_{round_num}_adversarial"
+            save_model(global_model, adversarial_detector_path)
+            
+            # Clear FL model from GPU to make room for adversarial models
+            global_model.cpu()
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            try:
+                # Import and run adversarial training
+                from src.adversarial.fl_integration import run_adversarial_round
+                
+                adversarial_stats = run_adversarial_round(
+                    detector_path=adversarial_detector_path,
+                    round_num=round_num,
+                    output_base_dir="adversarial_outputs",
+                    num_samples_to_add=adversarial_samples,
+                    total_episodes=adversarial_episodes,
+                    wandb_run_id=_wandb_run.id if _wandb_run else None,
+                    sft_epochs=sft_epochs,
+                )
+                
+                print(f"[SERVER] ✓ Adversarial training complete!")
+                print(f"[SERVER]   Found {adversarial_stats['num_bypasses_found']} bypasses")
+                print(f"[SERVER]   Added {adversarial_stats['added_total']} samples to dataset")
+                
+            except Exception as e:
+                print(f"[SERVER] ⚠ Adversarial training failed: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            finally:
+                # Clear adversarial models and reload FL model to GPU
+                gc.collect()
+                torch.cuda.empty_cache()
+                global_model.to("cuda" if torch.cuda.is_available() else "cpu")
+                print(f"[SERVER] Restored FL model to GPU")
 
     # Log final metrics to W&B
     final_eval_metrics = getattr(result, 'eval_metrics', None) or {} if result else {}

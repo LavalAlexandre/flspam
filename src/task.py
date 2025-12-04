@@ -101,10 +101,18 @@ def distribute_spam(
 ) -> dict[str, list[dict]]:
     """Distribute spam messages across personas.
     
+    Strategy:
+    1. Separate adversarial spam (source="adversarial") from regular spam
+    2. Distribute regular spam according to strategy (iid/dirichlet)
+    3. Add ALL adversarial spam to ALL clients (uniform)
+    
+    This preserves existing spam allocations while ensuring all clients
+    learn from new adversarial examples.
+    
     Args:
         spam_messages: List of spam message dicts
         persona_ids: List of persona UUIDs
-        strategy: Distribution strategy
+        strategy: Distribution strategy for regular spam
             - "iid": Equal distribution across all personas
             - "dirichlet": Non-IID using Dirichlet distribution
         alpha: Dirichlet concentration parameter (lower = more non-IID)
@@ -115,38 +123,48 @@ def distribute_spam(
     """
     rng = np.random.default_rng(seed)
     n_personas = len(persona_ids)
-    n_spam = len(spam_messages)
     
+    # Separate adversarial spam from regular spam
+    adversarial_spam = [msg for msg in spam_messages if msg.get("source") == "adversarial"]
+    regular_spam = [msg for msg in spam_messages if msg.get("source") != "adversarial"]
+    
+    n_regular = len(regular_spam)
+    
+    # Distribute regular spam according to strategy
     if strategy == "iid":
         # Shuffle and distribute evenly
-        indices = rng.permutation(n_spam)
+        indices = rng.permutation(n_regular)
         splits = np.array_split(indices, n_personas)
         
-        return {
-            pid: [spam_messages[i] for i in split]
+        result = {
+            pid: [regular_spam[i] for i in split]
             for pid, split in zip(persona_ids, splits)
         }
     
     elif strategy == "dirichlet":
         # Non-IID: some personas get more spam than others
         proportions = rng.dirichlet([alpha] * n_personas)
-        counts = (proportions * n_spam).astype(int)
+        counts = (proportions * n_regular).astype(int)
         
         # Fix rounding errors
-        diff = n_spam - counts.sum()
+        diff = n_regular - counts.sum()
         counts[rng.choice(n_personas, size=abs(diff))] += np.sign(diff)
         
-        indices = rng.permutation(n_spam)
+        indices = rng.permutation(n_regular)
         result = {}
         start = 0
         for pid, count in zip(persona_ids, counts):
-            result[pid] = [spam_messages[i] for i in indices[start:start + count]]
+            result[pid] = [regular_spam[i] for i in indices[start:start + count]]
             start += count
-        
-        return result
     
     else:
         raise ValueError(f"Unknown strategy: {strategy}")
+    
+    # Add ALL adversarial spam to ALL clients (uniform distribution)
+    for pid in persona_ids:
+        result[pid].extend(adversarial_spam)
+    
+    return result
 
 
 def load_data(
@@ -192,21 +210,37 @@ def load_data(
     )
     persona_spam = spam_distribution[persona_id]
     
-    # Combine ham and spam
-    all_messages = persona_ham + persona_spam
-    texts = [m['text'] for m in all_messages]
-    labels = [m['label'] for m in all_messages]
+    # Separate adversarial spam (has pre-assigned train/val split) from regular data
+    adversarial_spam = [m for m in persona_spam if m.get("source") == "adversarial"]
+    regular_spam = [m for m in persona_spam if m.get("source") != "adversarial"]
     
-    # Shuffle
+    # For adversarial spam, respect the pre-assigned split (same across all clients)
+    adversarial_train = [m for m in adversarial_spam if m.get("split") == "train"]
+    adversarial_val = [m for m in adversarial_spam if m.get("split") == "val"]
+    
+    # Combine regular ham + regular spam for per-client splitting
+    regular_messages = persona_ham + regular_spam
+    regular_texts = [m['text'] for m in regular_messages]
+    regular_labels = [m['label'] for m in regular_messages]
+    
+    # Shuffle and split regular data (per-client randomization)
     rng = np.random.default_rng(seed + partition_id)
-    indices = rng.permutation(len(texts))
-    texts = [texts[i] for i in indices]
-    labels = [labels[i] for i in indices]
+    indices = rng.permutation(len(regular_texts))
+    regular_texts = [regular_texts[i] for i in indices]
+    regular_labels = [regular_labels[i] for i in indices]
     
-    # Train/test split
-    split_idx = int(len(texts) * (1 - test_size))
-    train_texts, test_texts = texts[:split_idx], texts[split_idx:]
-    train_labels, test_labels = labels[:split_idx], labels[split_idx:]
+    # Train/test split for regular data
+    split_idx = int(len(regular_texts) * (1 - test_size))
+    regular_train_texts = regular_texts[:split_idx]
+    regular_train_labels = regular_labels[:split_idx]
+    regular_test_texts = regular_texts[split_idx:]
+    regular_test_labels = regular_labels[split_idx:]
+    
+    # Add adversarial spam (with pre-assigned splits)
+    train_texts = regular_train_texts + [m['text'] for m in adversarial_train]
+    train_labels = regular_train_labels + [m['label'] for m in adversarial_train]
+    test_texts = regular_test_texts + [m['text'] for m in adversarial_val]
+    test_labels = regular_test_labels + [m['label'] for m in adversarial_val]
     
     tokenizer = get_cached_tokenizer()
     
@@ -225,6 +259,32 @@ def get_num_clients() -> int:
     return len(persona_ids)
 
 
+def compute_class_weights(trainloader: DataLoader) -> list[float]:
+    """
+    Compute inverse frequency class weights from a dataloader.
+    
+    Returns weights [w_ham, w_spam] where higher weight = more penalty for errors.
+    Uses inverse frequency: w_i = n_total / (n_classes * n_i)
+    """
+    label_counts = {0: 0, 1: 0}
+    
+    for batch in trainloader:
+        labels = batch["labels"].tolist()
+        for label in labels:
+            label_counts[label] += 1
+    
+    total = sum(label_counts.values())
+    n_classes = 2
+    
+    # Inverse frequency weighting
+    weights = [
+        total / (n_classes * label_counts[0]) if label_counts[0] > 0 else 1.0,  # HAM weight
+        total / (n_classes * label_counts[1]) if label_counts[1] > 0 else 1.0,  # SPAM weight
+    ]
+    
+    return weights
+
+
 # ------------------------------------------------------------------
 # Training & Evaluation
 # ------------------------------------------------------------------
@@ -239,6 +299,7 @@ def train(
     max_grad_norm: float = 1.0,
     use_amp: bool = True,
     compile_model: bool = False,
+    class_weights: list[float] | None = None,
 ):
     """Train the model on the training set with optimizations.
     
@@ -252,6 +313,7 @@ def train(
         max_grad_norm: Maximum gradient norm for clipping (default 1.0)
         use_amp: Use automatic mixed precision (default True)
         compile_model: Use torch.compile for optimization (default False, can be slow first run)
+        class_weights: Optional weights for [HAM, SPAM] classes. Higher weight = more penalty for errors.
         
     Returns:
         Average training loss
@@ -262,6 +324,14 @@ def train(
     # Optionally compile the model (PyTorch 2.0+)
     if compile_model and hasattr(torch, 'compile'):
         model = torch.compile(model, mode="reduce-overhead")
+    
+    # Setup weighted loss function if class weights provided
+    if class_weights is not None:
+        weight_tensor = torch.tensor(class_weights, dtype=torch.float32, device=device)
+        criterion = torch.nn.CrossEntropyLoss(weight=weight_tensor)
+        log.info(f"Using class weights: HAM={class_weights[0]:.2f}, SPAM={class_weights[1]:.2f}")
+    else:
+        criterion = None  # Use model's built-in loss
     
     # Only optimize trainable parameters (LoRA + classifier)
     optimizer = torch.optim.AdamW(
@@ -306,9 +376,20 @@ def train(
                 outputs = model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    labels=labels,
+                    labels=None if criterion else labels,  # Don't pass labels if using custom loss
                 )
-                loss = outputs.loss
+                
+                # Use weighted loss if provided, otherwise use model's built-in loss
+                if criterion:
+                    loss = criterion(outputs.logits, labels)
+                else:
+                    # Need to compute loss with labels
+                    outputs = model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        labels=labels,
+                    )
+                    loss = outputs.loss
             
             # Backward pass with gradient scaling
             scaler.scale(loss).backward()

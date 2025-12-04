@@ -6,6 +6,21 @@ __pycache__/
 # Flower directory
 .flwr
 
+# Model checkpoints and adapters (too large for Ray/Flower upload)
+sft_spam_lora/
+rl_spam_lora/
+final_model/
+checkpoints/
+*.safetensors
+*.pt
+*.bin
+!requirements*.txt
+
+# Adversarial outputs
+adversarial_outputs/
+bypass_samples*.json
+selected_bypasses*.json
+
 # C extensions
 *.so
 
